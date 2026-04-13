@@ -51,14 +51,32 @@ def handler(job):
         operation = job_input.get("operation", "echo")
         print(f"Job received: operation={operation}")
 
-        # Echo — test de base
+        # Echo — test de base + diagnostic
         if operation == "echo":
-            return {
+            diag = {
                 "status": "alive",
                 "message": "daw-ava-gpu handler OK",
                 "separator_available": Separator is not None,
                 "input": job_input,
             }
+            # Diagnostic import si demande
+            if job_input.get("debug"):
+                import subprocess
+                try:
+                    pip_list = subprocess.check_output(["pip", "list"], text=True)
+                    diag["pip_packages"] = [l for l in pip_list.split("\n") if "audio" in l.lower() or "torch" in l.lower() or "separator" in l.lower()]
+                except:
+                    diag["pip_packages"] = "error"
+                # Tenter l'import dynamique pour voir l'erreur
+                try:
+                    from audio_separator.separator import Separator as S
+                    diag["import_test"] = "SUCCESS"
+                except Exception as ie:
+                    import traceback
+                    diag["import_test"] = "FAILED"
+                    diag["import_error"] = str(ie)
+                    diag["import_traceback"] = traceback.format_exc()
+            return diag
 
         # Verifier que audio-separator est disponible
         if Separator is None:
