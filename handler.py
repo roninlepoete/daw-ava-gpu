@@ -1,23 +1,17 @@
 """
 DAW-Ava GPU Handler — RunPod Serverless
 V1 : de-reverb + stems via audio-separator
-Conforme au template officiel RunPod.
+Retourne des URLs de fichiers (pas de base64 — limite 20 Mo)
 """
 
 import runpod
 import os
 import tempfile
 import requests
-import base64
 import traceback
 from pathlib import Path
 
-# ============================================================
-# Chargement global (hors handler) — RunPod best practice
-# Les modeles sont charges UNE SEULE FOIS au demarrage du worker
-# ============================================================
 print("DAW-Ava handler starting...")
-print("Importing audio_separator...")
 
 try:
     from audio_separator.separator import Separator
@@ -28,7 +22,6 @@ except Exception as e:
 
 
 def download_file(url, dest):
-    """Telecharge un fichier depuis une URL."""
     print(f"Downloading {url[:80]}...")
     r = requests.get(url)
     r.raise_for_status()
@@ -38,20 +31,31 @@ def download_file(url, dest):
     return dest
 
 
-def file_to_b64(file_path):
-    """Encode un fichier en base64."""
+def upload_to_transfer(file_path):
+    """Upload vers transfer.sh (temporaire, 14 jours, gratuit)."""
+    p = Path(file_path)
+    print(f"Uploading {p.name} ({p.stat().st_size/(1024*1024):.1f} Mo)...")
     with open(file_path, "rb") as f:
-        return base64.b64encode(f.read()).decode("utf-8")
+        r = requests.put(
+            f"https://transfer.sh/{p.name}",
+            data=f,
+            headers={"Max-Days": "7"}
+        )
+    if r.status_code == 200:
+        url = r.text.strip()
+        print(f"Uploaded: {url}")
+        return url
+    else:
+        print(f"Upload failed: {r.status_code} {r.text[:200]}")
+        return None
 
 
 def handler(job):
-    """Handler principal — conforme RunPod serverless."""
     try:
         job_input = job["input"]
         operation = job_input.get("operation", "echo")
         print(f"Job received: operation={operation}")
 
-        # Echo — test de base + diagnostic
         if operation == "echo":
             diag = {
                 "status": "alive",
@@ -59,30 +63,18 @@ def handler(job):
                 "separator_available": Separator is not None,
                 "input": job_input,
             }
-            # Diagnostic import si demande
             if job_input.get("debug"):
-                import subprocess
-                try:
-                    pip_list = subprocess.check_output(["pip", "list"], text=True)
-                    diag["pip_packages"] = [l for l in pip_list.split("\n") if "audio" in l.lower() or "torch" in l.lower() or "separator" in l.lower()]
-                except:
-                    diag["pip_packages"] = "error"
-                # Tenter l'import dynamique pour voir l'erreur
                 try:
                     from audio_separator.separator import Separator as S
                     diag["import_test"] = "SUCCESS"
                 except Exception as ie:
-                    import traceback
                     diag["import_test"] = "FAILED"
                     diag["import_error"] = str(ie)
-                    diag["import_traceback"] = traceback.format_exc()
             return diag
 
-        # Verifier que audio-separator est disponible
         if Separator is None:
             return {"error": "audio_separator not available"}
 
-        # Telecharger l'audio
         audio_url = job_input.get("audio_url")
         if not audio_url:
             return {"error": "audio_url required"}
@@ -91,7 +83,6 @@ def handler(job):
         audio_file = work_dir / "input.wav"
         download_file(audio_url, str(audio_file))
 
-        # Choisir le modele
         if operation == "dereverb":
             model_name = job_input.get("model", "UVR-DeEcho-DeReverb.pth")
         elif operation == "stems":
@@ -105,13 +96,12 @@ def handler(job):
 
         print("Separating...")
         result = sep.separate(str(audio_file))
-        print(f"Separation result: {result}")
+        print(f"Separation done")
 
-        # Lister les fichiers produits
         all_wavs = [f for f in work_dir.glob("*.wav") if f.name != "input.wav"]
         print(f"Output files: {[f.name for f in all_wavs]}")
 
-        # Construire la reponse
+        # Uploader les fichiers et retourner les URLs (pas de base64)
         outputs = {}
         for wav in all_wavs:
             name_lower = wav.name.lower()
@@ -126,12 +116,13 @@ def handler(job):
             else:
                 key = wav.stem
 
+            url = upload_to_transfer(wav)
             outputs[key] = {
                 "filename": wav.name,
                 "size_mb": round(wav.stat().st_size / (1024 * 1024), 1),
-                "data_b64": file_to_b64(wav),
+                "url": url,
             }
-            print(f"Output: {key} = {wav.name} ({wav.stat().st_size} bytes)")
+            print(f"Output: {key} = {wav.name} -> {url}")
 
         return outputs
 
