@@ -1,13 +1,15 @@
 """
 DAW-Ava GPU Handler — RunPod Serverless
 V1 : de-reverb + stems via audio-separator
-Retourne des URLs de fichiers (pas de base64 — limite 20 Mo)
+Retourne les metadonnees (pas les fichiers — limite 20 Mo)
 """
 
 import runpod
 import os
+import subprocess
 import tempfile
 import requests
+import base64
 import traceback
 from pathlib import Path
 
@@ -22,45 +24,24 @@ except Exception as e:
 
 
 def download_file(url, dest):
-    print(f"Downloading {url[:80]}...")
+    print(f"Downloading...")
     r = requests.get(url)
     r.raise_for_status()
     with open(dest, "wb") as f:
         f.write(r.content)
     print(f"Downloaded {Path(dest).stat().st_size} bytes")
-    return dest
-
-
-def wav_to_mp3_b64(wav_path):
-    """Convertit WAV en MP3 et retourne le base64 (taille reduite ~10x)."""
-    import subprocess, base64
-    mp3_path = str(wav_path).replace(".wav", ".mp3")
-    print(f"Converting {Path(wav_path).name} to MP3...")
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", str(wav_path), "-b:a", "192k", mp3_path],
-        capture_output=True
-    )
-    mp3 = Path(mp3_path)
-    if mp3.exists():
-        size_mb = mp3.stat().st_size / (1024 * 1024)
-        print(f"MP3: {mp3.name} ({size_mb:.1f} Mo)")
-        with open(mp3_path, "rb") as f:
-            return base64.b64encode(f.read()).decode("utf-8"), mp3.name, size_mb
-    return None, None, None
 
 
 def handler(job):
     try:
         job_input = job["input"]
         operation = job_input.get("operation", "echo")
-        print(f"Job received: operation={operation}")
+        print(f"Job: {operation}")
 
         if operation == "echo":
             diag = {
                 "status": "alive",
-                "message": "daw-ava-gpu handler OK",
                 "separator_available": Separator is not None,
-                "input": job_input,
             }
             if job_input.get("debug"):
                 try:
@@ -89,48 +70,53 @@ def handler(job):
         else:
             return {"error": f"Unknown operation: {operation}"}
 
-        print(f"Loading model: {model_name}")
+        print(f"Model: {model_name}")
         sep = Separator(output_dir=str(work_dir), output_format="wav")
         sep.load_model(model_filename=model_name)
 
         print("Separating...")
-        result = sep.separate(str(audio_file))
-        print(f"Separation done")
+        sep.separate(str(audio_file))
+        print("Done")
 
         all_wavs = [f for f in work_dir.glob("*.wav") if f.name != "input.wav"]
-        print(f"Output files: {[f.name for f in all_wavs]}")
 
-        # Uploader les fichiers et retourner les URLs (pas de base64)
+        # Convertir en MP3 et retourner en base64
         outputs = {}
         for wav in all_wavs:
             name_lower = wav.name.lower()
-            if any(k in name_lower for k in ["no reverb", "no echo", "no_reverb", "no_echo"]):
+            if any(k in name_lower for k in ["no reverb", "no echo"]):
                 key = "dry"
             elif "vocal" in name_lower:
                 key = "vocals"
             elif any(k in name_lower for k in ["other", "instrument"]):
                 key = "instrumental"
-            elif "reverb" in name_lower or "echo" in name_lower:
+            else:
                 key = "wet"
-            else:
-                key = wav.stem
 
-            b64, mp3_name, mp3_size = wav_to_mp3_b64(wav)
-            if b64:
-                outputs[key] = {
-                    "filename": mp3_name,
-                    "size_mb": round(mp3_size, 1),
-                    "data_b64": b64,
-                }
-                print(f"Output: {key} = {mp3_name} ({mp3_size:.1f} Mo)")
+            # WAV -> MP3 via ffmpeg
+            mp3 = work_dir / f"{key}.mp3"
+            subprocess.run(["ffmpeg", "-y", "-i", str(wav), "-b:a", "192k", str(mp3)], capture_output=True)
+
+            if mp3.exists() and mp3.stat().st_size < 15_000_000:
+                with open(mp3, "rb") as f:
+                    outputs[key] = {
+                        "filename": mp3.name,
+                        "size_mb": round(mp3.stat().st_size / (1024*1024), 1),
+                        "data_b64": base64.b64encode(f.read()).decode("utf-8"),
+                    }
+                print(f"Output: {key} ({mp3.stat().st_size/(1024*1024):.1f} Mo MP3)")
             else:
-                outputs[key] = {"error": f"MP3 conversion failed for {wav.name}"}
+                # Fallback : juste les metadonnees sans le fichier
+                outputs[key] = {
+                    "filename": wav.name,
+                    "size_mb": round(wav.stat().st_size / (1024*1024), 1),
+                    "note": "file too large for response, MP3 conversion may have failed",
+                }
 
         return outputs
 
     except Exception as e:
         print(f"ERROR: {e}")
-        print(traceback.format_exc())
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 
