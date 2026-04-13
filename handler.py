@@ -43,6 +43,7 @@ def op_stems(job_input, work_dir):
     from audio_separator.separator import Separator
 
     audio_url = job_input["audio_url"]
+    stem_mode = job_input.get("stem", "vocals")
     audio_file = download_file(audio_url, work_dir / "input.wav")
 
     sep = Separator(output_dir=str(work_dir), output_format="wav")
