@@ -31,23 +31,22 @@ def download_file(url, dest):
     return dest
 
 
-def upload_to_transfer(file_path):
-    """Upload vers transfer.sh (temporaire, 14 jours, gratuit)."""
-    p = Path(file_path)
-    print(f"Uploading {p.name} ({p.stat().st_size/(1024*1024):.1f} Mo)...")
-    with open(file_path, "rb") as f:
-        r = requests.put(
-            f"https://transfer.sh/{p.name}",
-            data=f,
-            headers={"Max-Days": "7"}
-        )
-    if r.status_code == 200:
-        url = r.text.strip()
-        print(f"Uploaded: {url}")
-        return url
-    else:
-        print(f"Upload failed: {r.status_code} {r.text[:200]}")
-        return None
+def wav_to_mp3_b64(wav_path):
+    """Convertit WAV en MP3 et retourne le base64 (taille reduite ~10x)."""
+    import subprocess, base64
+    mp3_path = str(wav_path).replace(".wav", ".mp3")
+    print(f"Converting {Path(wav_path).name} to MP3...")
+    subprocess.run(
+        ["ffmpeg", "-y", "-i", str(wav_path), "-b:a", "192k", mp3_path],
+        capture_output=True
+    )
+    mp3 = Path(mp3_path)
+    if mp3.exists():
+        size_mb = mp3.stat().st_size / (1024 * 1024)
+        print(f"MP3: {mp3.name} ({size_mb:.1f} Mo)")
+        with open(mp3_path, "rb") as f:
+            return base64.b64encode(f.read()).decode("utf-8"), mp3.name, size_mb
+    return None, None, None
 
 
 def handler(job):
@@ -116,13 +115,16 @@ def handler(job):
             else:
                 key = wav.stem
 
-            url = upload_to_transfer(wav)
-            outputs[key] = {
-                "filename": wav.name,
-                "size_mb": round(wav.stat().st_size / (1024 * 1024), 1),
-                "url": url,
-            }
-            print(f"Output: {key} = {wav.name} -> {url}")
+            b64, mp3_name, mp3_size = wav_to_mp3_b64(wav)
+            if b64:
+                outputs[key] = {
+                    "filename": mp3_name,
+                    "size_mb": round(mp3_size, 1),
+                    "data_b64": b64,
+                }
+                print(f"Output: {key} = {mp3_name} ({mp3_size:.1f} Mo)")
+            else:
+                outputs[key] = {"error": f"MP3 conversion failed for {wav.name}"}
 
         return outputs
 
