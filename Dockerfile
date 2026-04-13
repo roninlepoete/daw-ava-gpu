@@ -1,6 +1,6 @@
 # DAW-Ava GPU — RunPod Serverless
-# Base officielle RunPod (CUDA 11.8)
-# D80 : onnxruntime-gpu DOIT matcher la version CUDA de l'image
+# D80 : onnxruntime CPU suffit pour audio-separator (de-reverb/stems)
+# Le GPU n'est PAS necessaire pour le traitement audio UVR
 
 FROM runpod/base:0.6.3-cuda11.8.0
 
@@ -10,11 +10,8 @@ RUN ln -sf $(which python3.11) /usr/local/bin/python && \
 RUN python -m pip install --upgrade pip && \
     pip install --no-cache-dir \
     runpod>=1.7.0 \
-    requests && \
-    pip install --no-cache-dir \
-    onnxruntime-gpu \
-    --extra-index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-11/pypi/simple/ && \
-    pip install --no-cache-dir \
+    requests \
+    onnxruntime \
     audio-separator
 
 ADD handler.py /handler.py
