@@ -74,12 +74,30 @@ def op_dereverb(job_input, work_dir):
 
     outputs = {}
     for f in result:
+        # audio-separator retourne des noms relatifs ou absolus selon la version
         p = Path(f)
+        if not p.is_absolute():
+            p = work_dir / p.name
+        if not p.exists():
+            p = work_dir / Path(f).name
         if p.exists():
-            if "no reverb" in p.name.lower() or "no echo" in p.name.lower():
+            name_lower = p.name.lower()
+            if "no reverb" in name_lower or "no echo" in name_lower or "no_reverb" in name_lower or "no_echo" in name_lower:
                 outputs["dry"] = upload_result(p)
             else:
                 outputs["wet"] = upload_result(p)
+
+    # Fallback : scanner le work_dir pour les WAV produits (hors input)
+    if not outputs:
+        for wav in work_dir.glob("*.wav"):
+            if wav.name != "input.wav":
+                name_lower = wav.name.lower()
+                if "no reverb" in name_lower or "no echo" in name_lower or "no_reverb" in name_lower or "no_echo" in name_lower:
+                    outputs["dry"] = upload_result(wav)
+                elif "reverb" in name_lower or "echo" in name_lower:
+                    outputs["wet"] = upload_result(wav)
+                else:
+                    outputs[wav.stem] = upload_result(wav)
 
     return outputs
 
