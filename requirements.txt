@@ -1,3 +1,5 @@
+# torch installe directement dans le Dockerfile (CUDA 11.8 specifique)
+# Ne PAS mettre torch ici — conflit avec --extra-index-url
 runpod>=1.7.0
 requests
 audio-separator
