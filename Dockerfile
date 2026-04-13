@@ -1,25 +1,19 @@
-# DAW-Ava GPU — Docker RunPod Serverless
-# V1 : de-reverb + stems (audio-separator)
+# DAW-Ava GPU — RunPod Serverless
+# Base officielle RunPod (CUDA + SDK pre-installe)
 
-FROM python:3.11-slim
+FROM runpod/base:0.6.3-cuda11.8.0
 
-ENV DEBIAN_FRONTEND=noninteractive
-ENV PYTHONUNBUFFERED=1
+# Python 3.11
+RUN ln -sf $(which python3.11) /usr/local/bin/python && \
+    ln -sf $(which python3.11) /usr/local/bin/python3
 
-RUN apt-get update && apt-get install -y \
-    ffmpeg \
-    libsndfile1 \
-    build-essential \
-    && rm -rf /var/lib/apt/lists/*
+# Dependances
+COPY requirements.txt /requirements.txt
+RUN python -m pip install --upgrade pip && \
+    pip install --no-cache-dir -r /requirements.txt
 
-WORKDIR /app
+# Handler
+ADD handler.py /handler.py
 
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir \
-    runpod \
-    requests \
-    audio-separator[cpu]
-
-COPY handler.py /app/handler.py
-
-CMD ["python", "/app/handler.py"]
+# -u = unbuffered stdout (obligatoire RunPod)
+CMD ["python", "-u", "/handler.py"]
