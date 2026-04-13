@@ -85,46 +85,13 @@ def op_dereverb(job_input, work_dir):
 
 
 def op_svc(job_input, work_dir):
-    """Singing Voice Conversion via RVC."""
-    # Pour la V1 on delegue a Replicate (deja operationnel)
-    # RunPod RVC natif = Phase 2
-    return {"error": "SVC natif RunPod pas encore implemente. Utiliser Replicate."}
+    """Singing Voice Conversion — V1 delegue a Replicate."""
+    return {"error": "SVC : utiliser Replicate (zsxkib/realistic-voice-cloning). RunPod SVC = V2."}
 
 
 def op_svs(job_input, work_dir):
-    """Singing Voice Synthesis via SoulX-Singer."""
-    import sys
-    sys.path.insert(0, "/app/SoulX-Singer")
-
-    prompt_url = job_input["prompt_audio_url"]  # Voix du Cap'taine (timbre)
-    target_url = job_input["target_audio_url"]  # Vocal Suno (melodie + paroles)
-    control = job_input.get("control", "melody")
-    auto_shift = job_input.get("auto_shift", True)
-    pitch_shift = job_input.get("pitch_shift", 0)
-
-    prompt_file = download_file(prompt_url, work_dir / "prompt.wav")
-    target_file = download_file(target_url, work_dir / "target.wav")
-
-    # Import SoulX-Singer inference
-    from soulxsinger.inference import SoulXSingerInference
-
-    model = SoulXSingerInference(
-        model_dir="/app/pretrained_models/SoulX-Singer",
-        preprocess_dir="/app/pretrained_models/SoulX-Singer-Preprocess",
-        device="cuda",
-    )
-
-    output_file = work_dir / "generated.wav"
-    model.infer_svs(
-        prompt_audio=str(prompt_file),
-        target_audio=str(target_file),
-        output_path=str(output_file),
-        control=control,
-        auto_shift=auto_shift,
-        pitch_shift=pitch_shift,
-    )
-
-    return {"audio": upload_result(output_file)}
+    """Singing Voice Synthesis — V1 delegue a HuggingFace Space."""
+    return {"error": "SVS : utiliser HuggingFace Space (Soul-AILab/SoulX-Singer). RunPod SVS = V2."}
 
 
 def handler(job):
